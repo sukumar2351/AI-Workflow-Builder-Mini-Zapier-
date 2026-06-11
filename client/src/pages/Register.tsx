@@ -134,7 +134,7 @@ export const Register: React.FC<RegisterProps> = ({ onNavigateToLogin, onSuccess
           className="w-full bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-white rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all mb-6 disabled:opacity-50"
         >
           <Chrome className="w-4 h-4 text-indigo-400" />
-          <span>Sign up with Google</span>
+          <span>Continue with Google</span>
         </button>
 
         <p className="text-center text-sm text-gray-400">
