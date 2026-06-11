@@ -1,0 +1,28 @@
+# Dependency directories
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment files and credentials
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production
+.env.production.local
+server/.env
+server/.env.production
+client/.env
+client/.env.production
+*.env
+
+# Build outputs
+client/dist/
+server/dist/
+
+# Log and temp files
+server/temp/
+*.log
+.DS_Store
+dist/
+build/
