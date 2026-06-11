@@ -19,6 +19,18 @@ export const AppContent: React.FC = () => {
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Extract token from URL redirect and store it
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+      localStorage.setItem('flowgenius_token', token);
+      const newUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, document.title, newUrl);
+      window.location.reload();
+    }
+  }, []);
+
   // Navigate to Builder
   const handleNavigateToBuilder = (workflowId?: string) => {
     if (workflowId) {

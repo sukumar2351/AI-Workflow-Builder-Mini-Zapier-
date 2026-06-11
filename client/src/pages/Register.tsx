@@ -15,60 +15,10 @@ export const Register: React.FC<RegisterProps> = ({ onNavigateToLogin, onSuccess
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const initGoogleSignUp = () => {
-      if (!mounted) return;
-
-      if ((window as any).google?.accounts?.id) {
-        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-        if (!clientId) {
-          console.warn('Google Client ID is missing. Please define VITE_GOOGLE_CLIENT_ID in your environment.');
-          return;
-        }
-
-        (window as any).google.accounts.id.initialize({
-          client_id: clientId,
-          callback: async (response: any) => {
-            if (!mounted) return;
-            try {
-              setLoading(true);
-              setError('');
-              await loginWithGoogle(response.credential);
-              onSuccess();
-            } catch (err: any) {
-              setError(err.response?.data?.message || 'Google Sign-Up failed.');
-            } finally {
-              setLoading(false);
-            }
-          },
-          auto_select: false,
-          cancel_on_tap_outside: true,
-        });
-
-        const btnDiv = document.getElementById('google-signup-button');
-        if (btnDiv) {
-          (window as any).google.accounts.id.renderButton(btnDiv, {
-            theme: 'filled_dark',
-            size: 'large',
-            text: 'signup_with',
-            shape: 'rectangular',
-            logo_alignment: 'left',
-            width: btnDiv.clientWidth || 380,
-          });
-        }
-      } else {
-        setTimeout(initGoogleSignUp, 500);
-      }
-    };
-
-    initGoogleSignUp();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const handleGoogleSignUp = () => {
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005/api/v1';
+    window.location.href = `${API_BASE_URL}/auth/google`;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,9 +127,15 @@ export const Register: React.FC<RegisterProps> = ({ onNavigateToLogin, onSuccess
           </div>
         </div>
 
-        <div className="flex justify-center mb-6 w-full">
-          <div id="google-signup-button" className="w-full flex justify-center" style={{ minHeight: '44px' }}></div>
-        </div>
+        <button
+          type="button"
+          onClick={handleGoogleSignUp}
+          disabled={loading}
+          className="w-full bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-white rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all mb-6 disabled:opacity-50"
+        >
+          <Chrome className="w-4 h-4 text-indigo-400" />
+          <span>Sign up with Google</span>
+        </button>
 
         <p className="text-center text-sm text-gray-400">
           Already have an account?{' '}

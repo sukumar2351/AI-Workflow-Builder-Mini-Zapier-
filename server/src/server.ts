@@ -5,7 +5,7 @@ import { seedDefaultTemplates } from './controllers/templateController';
 const PORT = process.env.PORT || 5000;
 
 const validateEnv = () => {
-  const required = ['MONGODB_URI', 'JWT_SECRET'];
+  const required = ['MONGODB_URI', 'JWT_SECRET', 'GOOGLE_CALLBACK_URL', 'FRONTEND_URL'];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     console.error(`CRITICAL CONFIG ERROR: Missing required environment variables: ${missing.join(', ')}`);

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import axios from 'axios';
 import { User } from '../models/User';
 import { verifyGoogleToken } from '../services/googleAuth';
 
@@ -130,23 +131,69 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
-export const googleOAuth = async (req: Request, res: Response) => {
+export const googleRedirect = async (req: Request, res: Response) => {
   try {
-    const { token } = req.body;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const callbackUrl = process.env.GOOGLE_CALLBACK_URL;
 
-    if (!token) {
-      return res.status(400).json({ message: 'Google authentication requires ID token.' });
+    if (!clientId || !callbackUrl) {
+      return res.status(500).json({ message: 'Google OAuth configuration is missing on the server.' });
     }
 
-    // Verify Google ID token
-    const payload = await verifyGoogleToken(token);
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
+    
+    return res.redirect(googleAuthUrl);
+  } catch (error: any) {
+    console.error('Google Redirect Error:', error);
+    return res.status(500).json({ message: 'Failed to initiate Google OAuth redirect.', error: error.message });
+  }
+};
+
+export const googleCallback = async (req: Request, res: Response) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  try {
+    const { code, error } = req.query;
+
+    if (error) {
+      return res.redirect(`${frontendUrl}?error=${encodeURIComponent(error.toString())}`);
+    }
+
+    if (!code) {
+      return res.redirect(`${frontendUrl}?error=${encodeURIComponent('Authorization code is missing.')}`);
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const callbackUrl = process.env.GOOGLE_CALLBACK_URL;
+
+    if (!clientId || !clientSecret || !callbackUrl) {
+      return res.redirect(`${frontendUrl}?error=${encodeURIComponent('Server Google OAuth configuration is missing.')}`);
+    }
+
+    // Exchange authorization code for tokens
+    const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: callbackUrl,
+      grant_type: 'authorization_code'
+    }, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const { id_token } = tokenResponse.data;
+    if (!id_token) {
+      throw new Error('Google token response did not include ID token.');
+    }
+
+    // Verify Google ID token using our helper
+    const payload = await verifyGoogleToken(id_token);
     const { googleId, email, name, avatar } = payload;
 
-    // Check if user exists
+    // Resolve user in MongoDB
     let user = await User.findOne({ email });
 
     if (user) {
-      // Link Google ID if not already linked
       if (!user.googleId) {
         user.googleId = googleId;
         if (avatar && !user.avatar) {
@@ -155,7 +202,6 @@ export const googleOAuth = async (req: Request, res: Response) => {
         await user.save();
       }
     } else {
-      // Create new Google OAuth user
       user = new User({
         name,
         email,
@@ -166,22 +212,15 @@ export const googleOAuth = async (req: Request, res: Response) => {
       await user.save();
     }
 
-    // Sign Access & Refresh Tokens
+    // Generate Access and Refresh Tokens
     const accessToken = await generateTokens(res, user);
 
-    return res.status(200).json({
-      token: accessToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        apiKeys: user.apiKeys
-      }
-    });
-  } catch (error: any) {
-    console.error('Google OAuth error:', error);
-    return res.status(500).json({ message: 'Server error during Google OAuth.', error: error.message });
+    // Redirect user back to the client dashboard with token
+    return res.redirect(`${frontendUrl}?token=${accessToken}`);
+  } catch (err: any) {
+    console.error('Google Callback Error:', err);
+    const errorMessage = err.response?.data?.error_description || err.message || 'Google authentication failed.';
+    return res.redirect(`${frontendUrl}?error=${encodeURIComponent(errorMessage)}`);
   }
 };
 
