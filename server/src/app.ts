@@ -18,31 +18,67 @@ import { errorHandler } from './middleware/errorHandler';
 
 dotenv.config();
 
+import { sanitizeInput } from './middleware/sanitizer';
+
 const app = express();
 
 // Security Headers
 app.use(helmet({
-  contentSecurityPolicy: false, // Turn off CSP restriction if testing frontend locally on different port
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      frameSrc: ["'self'", "https://accounts.google.com"],
+      connectSrc: ["'self'", "https://accounts.google.com", "https://oauth2.googleapis.com", "*"]
+    }
+  },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
 }));
 
 // CORS Configuration
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://client-one-sandy-99.vercel.app'
+];
+
 app.use(cors({
-  origin: true, // Allow all origins for dev simplicity, or configure specific port like http://localhost:5173
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Blocked by CORS policy.'));
+    }
+  },
   credentials: true,
 }));
 
 // Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per windowMs for general dev/testing
+  max: 1000,
   message: { message: 'Too many requests from this IP, please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/', limiter);
 
-// Request Parsing
+// Stricter Rate Limiting for Auth
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50,
+  message: { message: 'Too many authentication attempts. Please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/v1/auth', authLimiter);
+
+// Request Parsing & Sanitization
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(sanitizeInput);
 
 // Mount API routes
 app.use('/api/v1/auth', authRoutes);

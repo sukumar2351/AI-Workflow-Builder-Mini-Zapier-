@@ -6,6 +6,7 @@ export interface IUser extends Document {
   password?: string;
   googleId?: string;
   avatar?: string;
+  refreshTokens?: string[];
   apiKeys: {
     geminiApiKey?: string;
   };
@@ -42,6 +43,10 @@ const UserSchema = new Schema<IUser>(
       type: String,
       default: '',
     },
+    refreshTokens: {
+      type: [String],
+      default: [],
+    },
     apiKeys: {
       geminiApiKey: {
         type: String,
@@ -58,6 +63,7 @@ const UserSchema = new Schema<IUser>(
 UserSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.password;
+    delete ret.refreshTokens;
     return ret;
   },
 });

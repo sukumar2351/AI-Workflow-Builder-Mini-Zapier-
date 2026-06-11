@@ -4,7 +4,23 @@ import { seedDefaultTemplates } from './controllers/templateController';
 
 const PORT = process.env.PORT || 5000;
 
+const validateEnv = () => {
+  const required = ['MONGODB_URI', 'JWT_SECRET'];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`CRITICAL CONFIG ERROR: Missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    console.warn(`WARNING: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing. Google OAuth will not function.`);
+  }
+};
+
 const startServer = async () => {
+  // Validate env before listening
+  validateEnv();
+
   // Listen on PORT first so Render port scan succeeds immediately
   app.listen(PORT, async () => {
     console.log(`==========================================`);

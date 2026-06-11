@@ -2,8 +2,46 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
+import { verifyGoogleToken } from '../services/googleAuth';
 
 const getJWTSecret = () => process.env.JWT_SECRET || 'supersecretflowgeniuskey12345!';
+const getJWTRefreshSecret = () => process.env.JWT_REFRESH_SECRET || 'supersecretflowgeniusrefreshkey54321!';
+
+const generateTokens = async (res: Response, user: any) => {
+  const accessToken = jwt.sign(
+    { userId: user._id.toString(), email: user.email },
+    getJWTSecret(),
+    { expiresIn: '15m' } // Short-lived access token
+  );
+
+  const refreshToken = jwt.sign(
+    { userId: user._id.toString() },
+    getJWTRefreshSecret(),
+    { expiresIn: '7d' } // Long-lived refresh token
+  );
+
+  // Store refresh token in user profile
+  user.refreshTokens = user.refreshTokens || [];
+  user.refreshTokens.push(refreshToken);
+
+  // Limit to last 5 active refresh tokens
+  if (user.refreshTokens.length > 5) {
+    user.refreshTokens.shift();
+  }
+  await user.save();
+
+  // Secure cookie options
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'none' as const, // Cross-domain cookies for Vercel + Render
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  };
+
+  res.cookie('refreshToken', refreshToken, cookieOptions);
+
+  return accessToken;
+};
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -34,12 +72,8 @@ export const register = async (req: Request, res: Response) => {
 
     await newUser.save();
 
-    // Sign JWT
-    const token = jwt.sign(
-      { userId: newUser._id.toString(), email: newUser.email },
-      getJWTSecret(),
-      { expiresIn: '7d' }
-    );
+    // Sign Access & Refresh Tokens
+    const token = await generateTokens(res, newUser);
 
     return res.status(201).json({
       token,
@@ -77,12 +111,8 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Invalid credentials.' });
     }
 
-    // Sign JWT
-    const token = jwt.sign(
-      { userId: user._id.toString(), email: user.email },
-      getJWTSecret(),
-      { expiresIn: '7d' }
-    );
+    // Sign Access & Refresh Tokens
+    const token = await generateTokens(res, user);
 
     return res.status(200).json({
       token,
@@ -102,17 +132,21 @@ export const login = async (req: Request, res: Response) => {
 
 export const googleOAuth = async (req: Request, res: Response) => {
   try {
-    const { googleId, email, name, avatar } = req.body;
+    const { token } = req.body;
 
-    if (!googleId || !email || !name) {
-      return res.status(400).json({ message: 'Google authentication requires googleId, email, and name.' });
+    if (!token) {
+      return res.status(400).json({ message: 'Google authentication requires ID token.' });
     }
+
+    // Verify Google ID token
+    const payload = await verifyGoogleToken(token);
+    const { googleId, email, name, avatar } = payload;
 
     // Check if user exists
     let user = await User.findOne({ email });
 
     if (user) {
-      // If user exists but didn't have googleId linked, link it
+      // Link Google ID if not already linked
       if (!user.googleId) {
         user.googleId = googleId;
         if (avatar && !user.avatar) {
@@ -121,7 +155,7 @@ export const googleOAuth = async (req: Request, res: Response) => {
         await user.save();
       }
     } else {
-      // Create new OAuth user
+      // Create new Google OAuth user
       user = new User({
         name,
         email,
@@ -132,15 +166,11 @@ export const googleOAuth = async (req: Request, res: Response) => {
       await user.save();
     }
 
-    // Sign JWT
-    const token = jwt.sign(
-      { userId: user._id.toString(), email: user.email },
-      getJWTSecret(),
-      { expiresIn: '7d' }
-    );
+    // Sign Access & Refresh Tokens
+    const accessToken = await generateTokens(res, user);
 
     return res.status(200).json({
-      token,
+      token: accessToken,
       user: {
         id: user._id,
         name: user.name,
@@ -152,5 +182,72 @@ export const googleOAuth = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Google OAuth error:', error);
     return res.status(500).json({ message: 'Server error during Google OAuth.', error: error.message });
+  }
+};
+
+export const refresh = async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'Refresh token not found.' });
+    }
+
+    // Verify refresh token
+    let decoded: any;
+    try {
+      decoded = jwt.verify(refreshToken, getJWTRefreshSecret());
+    } catch (err) {
+      return res.status(401).json({ message: 'Invalid or expired refresh token.' });
+    }
+
+    // Find user by ID
+    const user = await User.findById(decoded.userId);
+    if (!user || !user.refreshTokens || !user.refreshTokens.includes(refreshToken)) {
+      return res.status(401).json({ message: 'Invalid refresh token session.' });
+    }
+
+    // Generate new access token
+    const newAccessToken = jwt.sign(
+      { userId: user._id.toString(), email: user.email },
+      getJWTSecret(),
+      { expiresIn: '15m' }
+    );
+
+    return res.status(200).json({ token: newAccessToken });
+  } catch (error: any) {
+    console.error('Token refresh error:', error);
+    return res.status(500).json({ message: 'Server error during token refresh.', error: error.message });
+  }
+};
+
+export const logout = async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+
+    if (refreshToken) {
+      // Clear cookie
+      res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'none' as const
+      });
+
+      // Verify and remove from database
+      try {
+        const decoded = jwt.verify(refreshToken, getJWTRefreshSecret()) as { userId: string };
+        const user = await User.findById(decoded.userId);
+        if (user && user.refreshTokens) {
+          user.refreshTokens = user.refreshTokens.filter((t: string) => t !== refreshToken);
+          await user.save();
+        }
+      } catch (err) {
+        // Ignored
+      }
+    }
+
+    return res.status(200).json({ message: 'Logged out successfully.' });
+  } catch (error: any) {
+    console.error('Logout error:', error);
+    return res.status(500).json({ message: 'Server error during logout.', error: error.message });
   }
 };

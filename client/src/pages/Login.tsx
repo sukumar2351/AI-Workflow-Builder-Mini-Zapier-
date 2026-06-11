@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LogIn, Github, Chrome, AlertCircle, ArrowRight } from 'lucide-react';
 
@@ -14,6 +14,61 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToRegister, onSuccess })
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const initGoogleSignIn = () => {
+      if (!mounted) return;
+
+      if ((window as any).google?.accounts?.id) {
+        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+        if (!clientId) {
+          console.warn('Google Client ID is missing. Please define VITE_GOOGLE_CLIENT_ID in your environment.');
+          return;
+        }
+
+        (window as any).google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response: any) => {
+            if (!mounted) return;
+            try {
+              setLoading(true);
+              setError('');
+              await loginWithGoogle(response.credential);
+              onSuccess();
+            } catch (err: any) {
+              setError(err.response?.data?.message || 'Google Sign-In failed.');
+            } finally {
+              setLoading(false);
+            }
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+
+        const btnDiv = document.getElementById('google-login-button');
+        if (btnDiv) {
+          (window as any).google.accounts.id.renderButton(btnDiv, {
+            theme: 'filled_dark',
+            size: 'large',
+            text: 'signin_with',
+            shape: 'rectangular',
+            logo_alignment: 'left',
+            width: btnDiv.clientWidth || 380,
+          });
+        }
+      } else {
+        setTimeout(initGoogleSignIn, 500);
+      }
+    };
+
+    initGoogleSignIn();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -28,25 +83,6 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToRegister, onSuccess })
       onSuccess();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to sign in. Please check your credentials.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      // Simulate Google Sign-In by generating a googleId and retrieving dummy credentials
-      const googleId = 'google_' + Math.random().toString(36).substr(2, 9);
-      const randomName = ['Alex Rivera', 'Jordan Vance', 'Taylor Swift', 'Morgan Drake', 'Casey Blake'][Math.floor(Math.random() * 5)];
-      const randomEmail = `${randomName.toLowerCase().replace(' ', '')}@gmail.com`;
-      const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(randomName)}`;
-
-      await loginWithGoogle(googleId, randomEmail, randomName, avatar);
-      onSuccess();
-    } catch (err: any) {
-      setError('Google Sign-in failed.');
     } finally {
       setLoading(false);
     }
@@ -132,14 +168,9 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToRegister, onSuccess })
           </div>
         </div>
 
-        <button
-          onClick={handleGoogleSignIn}
-          disabled={loading}
-          className="w-full bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-white rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all mb-6"
-        >
-          <Chrome className="w-4 h-4 text-indigo-400" />
-          <span>Sign in with Google (Simulated)</span>
-        </button>
+        <div className="flex justify-center mb-6 w-full">
+          <div id="google-login-button" className="w-full flex justify-center" style={{ minHeight: '44px' }}></div>
+        </div>
 
         <p className="text-center text-sm text-gray-400">
           Don't have an account?{' '}

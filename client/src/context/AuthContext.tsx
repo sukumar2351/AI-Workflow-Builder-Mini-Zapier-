@@ -7,7 +7,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
-  loginWithGoogle: (googleId: string, email: string, name: string, avatar?: string) => Promise<void>;
+  loginWithGoogle: (token: string) => Promise<void>;
   logout: () => void;
   updateProfileKeys: (geminiApiKey: string) => Promise<void>;
 }
@@ -37,6 +37,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setLoading(false);
     }
+
+    const handleSilentLogout = () => {
+      setUser(null);
+    };
+
+    window.addEventListener('auth_logout', handleSilentLogout);
+    return () => {
+      window.removeEventListener('auth_logout', handleSilentLogout);
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -51,13 +60,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(response.data.user);
   };
 
-  const loginWithGoogle = async (googleId: string, email: string, name: string, avatar?: string) => {
-    const response = await api.post('/auth/google', { googleId, email, name, avatar });
+  const loginWithGoogle = async (token: string) => {
+    const response = await api.post('/auth/google', { token });
     localStorage.setItem('flowgenius_token', response.data.token);
     setUser(response.data.user);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (err) {
+      console.error('Logout request failed:', err);
+    }
     localStorage.removeItem('flowgenius_token');
     setUser(null);
   };
